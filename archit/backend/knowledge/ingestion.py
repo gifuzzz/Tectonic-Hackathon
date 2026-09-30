@@ -28,15 +28,44 @@ def sync_drive(client, with_content=True, force=False):
     drive_names = client.list_shared_drives()
     items = list(client.list_all_files())
     folders = {i["id"]: i for i in items if i.get("mimeType") == FOLDER_MIME}
-    existing = {f.drive_id: f for f in DriveFile.objects.all()}
+    existing_ids = set(DriveFile.objects.values_list("drive_id", flat=True))
+    changed = upsert_items(items, folders, drive_names, client, with_content, force)
 
+    seen = {i["id"] for i in items}
+    gone = [d for d in existing_ids if d not in seen and not d.startswith(DEMO_PREFIX)]
+    for i in range(0, len(gone), 500):
+        DriveFile.objects.filter(drive_id__in=gone[i : i + 500]).update(trashed=True)
+
+    conflicts = _ingest_changed(changed)
+    return {"files": len(items), "changed": len(changed), "removed": len(gone), "unresolvedConflicts": conflicts}
+
+
+def ingest_items(items):
+    """Upsert Drive-shaped items pushed by another producer (POST /api/ingest). Nothing is marked trashed."""
+    folders = {
+        f.drive_id: {"id": f.drive_id, "name": f.name, "parents": f.parent_ids, "driveId": f.shared_drive_id}
+        for f in DriveFile.objects.filter(is_folder=True)
+    }
+    folders.update({i["id"]: i for i in items if i.get("mimeType") == FOLDER_MIME})
+    drive_names = dict(DriveFile.objects.exclude(shared_drive_id="").values_list("shared_drive_id", "shared_drive_name"))
+    changed = upsert_items(items, folders, drive_names)
+    conflicts = _ingest_changed(changed)
+    return {"nodesUpserted": len(items), "changed": len(changed), "unresolvedConflicts": conflicts}
+
+
+def upsert_items(items, folders, drive_names, client=None, with_content=True, force=False):
+    """Save Drive metadata for every item; return the non-folder files that are new or changed.
+    With a client, changed files also get their permissions and content fetched."""
+    from storage.services import record_version  # storage builds on knowledge; import late to avoid a cycle
+
+    existing = {f.drive_id: f for f in DriveFile.objects.all()}
     changed = []
     for item in items:
         f = existing.get(item["id"]) or DriveFile(drive_id=item["id"])
-        modified = parse_datetime(item["modifiedTime"]) if item.get("modifiedTime") else None
+        modified = _parse_time(item.get("modifiedTime"))
         is_changed = force or f.pk is None or f.trashed or f.drive_modified_at != modified
         apply_metadata(f, item, folders, drive_names, modified)
-        if is_changed and not f.is_folder:
+        if is_changed and not f.is_folder and client is not None:
             if "permissions" not in item:
                 f.permissions = [_permission(p) for p in client.get_permissions(item["id"])]
             if with_content:
@@ -47,21 +76,27 @@ def sync_drive(client, with_content=True, force=False):
                     text = ""
                 f.content_text = text[:MAX_TEXT_CHARS]
                 f.content_hash = hashlib.sha256(f.content_text.encode()).hexdigest()
-            changed.append(f)
         f.save()
+        if is_changed and not f.is_folder:
+            record_version(f)
+            changed.append(f)
+    return changed
 
-    seen = {i["id"] for i in items}
-    gone = [d for d in existing if d not in seen and not d.startswith(DEMO_PREFIX)]
-    for i in range(0, len(gone), 500):
-        DriveFile.objects.filter(drive_id__in=gone[i : i + 500]).update(trashed=True)
 
+def _parse_time(value):
+    try:
+        return parse_datetime(value) if value else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _ingest_changed(changed):
     customers = list(Customer.objects.all())
     for n, f in enumerate(changed, start=1):
         logger.info("Ingesting %d/%d: %s", n, len(changed), f.name)
         ingest_file(f, customers)
     link_supersessions()
-    conflicts = detect_conflicts()
-    return {"files": len(items), "changed": len(changed), "removed": len(gone), "unresolvedConflicts": conflicts}
+    return detect_conflicts()
 
 
 def apply_metadata(f, item, folders, drive_names, modified):
@@ -82,7 +117,7 @@ def apply_metadata(f, item, folders, drive_names, modified):
     if "permissions" in item:
         f.permissions = [_permission(p) for p in item["permissions"]]
     f.web_view_link = item.get("webViewLink", "")[:1000]
-    f.size = int(item["size"]) if item.get("size") else None
+    f.size = int(item["size"]) if str(item.get("size") or "").isdigit() else None
     f.drive_modified_at = modified
     f.md5 = item.get("md5Checksum", "")
     f.trashed = False

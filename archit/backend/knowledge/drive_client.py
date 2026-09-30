@@ -2,6 +2,7 @@
 import json
 import os
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -20,19 +21,27 @@ FILE_FIELDS = (
 
 
 class DriveClient:
-    def __init__(self, credentials_file, token_file):
+    def __init__(self, credentials_file, token_file, interactive=True):
         self.credentials_file = credentials_file
         self.token_file = token_file
+        self.interactive = interactive  # False: never open a browser (e.g. inside a web request)
         self._service = None
 
     def authenticate(self):
-        """Log in, reusing the saved token. Opens a browser the first time."""
+        """Log in, reusing the saved token. Opens a browser the first time (if interactive)."""
         creds = None
         if os.path.exists(self.token_file):
             creds = Credentials.from_authorized_user_file(self.token_file, SCOPES)
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        elif not (creds and creds.valid):
+            try:
+                creds.refresh(Request())
+            except RefreshError:
+                if not self.interactive:
+                    raise RuntimeError("The saved Google login expired. Run `manage.py sync_drive` to log in again.")
+                creds = None
+        if not (creds and creds.valid):
+            if not self.interactive:
+                raise RuntimeError("Google login required. Run `manage.py sync_drive` once in a terminal.")
             self._check_credentials_file()
             flow = InstalledAppFlow.from_client_secrets_file(self.credentials_file, SCOPES)
             creds = flow.run_local_server(port=0)

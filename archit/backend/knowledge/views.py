@@ -12,10 +12,10 @@ from . import cases as case_service
 from .conflicts import compare as compare_files
 from .enrich import COUNTRY_NAMES, COUNTRY_TERMS
 from .experts import find_experts
-from .models import Case, Customer, DriveFile, Expert
+from .models import Case, Conflict, Customer, DriveFile, Expert
 from .search import build_context, search as run_search
 from .serializers import (
-    case_detail, case_summary, conflict_dict, context_dict, expert_dict, file_detail, file_summary,
+    case_detail, case_summary, conflict_dict, context_dict, customer_dict, expert_dict, file_detail, file_summary,
 )
 from .trust import Context, evaluate
 
@@ -114,11 +114,21 @@ def index(request):
     """List the endpoints, so opening the server in a browser shows something useful."""
     return {
         "service": "SD Worx knowledge backend",
-        "endpoints": [
+        "knowledge": [
             "GET  /cases", "GET  /cases/:id", "GET  /cases/:id/evidence", "GET  /files/:id",
             "POST /search", "POST /compare", "POST /request-review", "POST /resolve", "GET  /experts",
+            "GET  /api/conflicts", "GET  /api/customers",
         ],
-        "note": "All endpoints also work under /api/ and with a trailing slash. Admin UI: /admin/",
+        "storage": [
+            "GET  /api/browse?path=", "GET  /api/graph", "GET  /api/nodes/:driveId", "PATCH /api/nodes/:driveId/meta",
+            "GET  /api/nodes/:driveId/history", "GET  /api/nodes/:driveId/meta-at?timestamp=",
+            "GET  /api/nodes/:driveId/versions", "GET|POST /api/nodes/:driveId/notes", "PATCH /api/notes/:id",
+            "GET  /api/search?q=&tag=&category=&type=&validity=&company=", "POST /api/ingest", "POST /api/sync",
+            "GET  /api/users", "GET  /api/activity", "GET  /api/suggestions", "POST /api/suggestions/analyze",
+            "POST /api/suggestions/:id/accept", "POST /api/suggestions/:id/dismiss", "GET  /api/health",
+        ],
+        "note": "Knowledge endpoints also work under /api/. All routes accept a trailing slash. "
+                "Send X-User-Email to apply company/country visibility. Admin UI: /admin/",
     }
 
 
@@ -181,6 +191,12 @@ def search(request):
         topic=_str(data.get("topic"), "topic"),
     )
     results, conflicts = run_search(query, ctx, user_email=_str(data.get("userEmail"), "userEmail"), limit=limit)
+    from storage.access import can_see, viewer_for  # storage builds on knowledge; import late to avoid a cycle
+
+    viewer = viewer_for(request)
+    results = [r for r in results if can_see(r["file"], viewer)]
+    visible = {r["file"].id for r in results}
+    conflicts = [c for c in conflicts if c.file_a_id in visible and c.file_b_id in visible]
     return {
         "query": query,
         "context": context_dict(ctx),
@@ -237,6 +253,20 @@ def resolve(request):
     conflict_ids = _int_list(data["conflictIds"], "conflictIds") if data.get("conflictIds") is not None else None
     c = case_service.resolve(c, _str(data.get("resolution"), "resolution"), conflict_ids)
     return case_detail(c, case_service.unresolved_conflicts(c))
+
+
+@api("GET")
+def customers(request):
+    return [customer_dict(c) for c in Customer.objects.all()]
+
+
+@api("GET")
+def conflicts(request):
+    """All conflicts, newest first. ?resolved=true|false filters."""
+    qs = Conflict.objects.select_related("file_a", "file_b")
+    if request.GET.get("resolved") in ("true", "false"):
+        qs = qs.filter(resolved=request.GET["resolved"] == "true")
+    return [conflict_dict(c) for c in qs]
 
 
 @api("GET")

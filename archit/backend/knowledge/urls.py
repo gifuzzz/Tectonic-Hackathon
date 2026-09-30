@@ -14,4 +14,6 @@ urlpatterns = [
     re_path(r"^request-review/?$", views.request_review),
     re_path(r"^resolve/?$", views.resolve),
     re_path(r"^experts/?$", views.experts),
+    re_path(r"^conflicts/?$", views.conflicts),
+    re_path(r"^customers/?$", views.customers),
 ]

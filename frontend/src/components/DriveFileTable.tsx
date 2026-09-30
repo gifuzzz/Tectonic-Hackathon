@@ -1,38 +1,16 @@
-import { FileText, FileSpreadsheet, FileType2, Folder } from 'lucide-react'
-import type { DriveFile, FileStatus } from '../data/mock'
-
-function FileIcon({ type }: { type: DriveFile['type'] }) {
-  if (type === 'sheet') {
-    return (
-      <span className="flex h-7 w-7 items-center justify-center rounded-[6px] bg-[#e6f4ea] text-[#137333]">
-        <FileSpreadsheet size={15} />
-      </span>
-    )
-  }
-  if (type === 'pdf') {
-    return (
-      <span className="flex h-7 w-7 items-center justify-center rounded-[6px] bg-[#fce8e6] text-[#c5221f]">
-        <FileType2 size={15} />
-      </span>
-    )
-  }
-  return (
-    <span className="flex h-7 w-7 items-center justify-center rounded-[6px] bg-[#e8f0fe] text-[#1a73e8]">
-      <FileText size={15} />
-    </span>
-  )
-}
-
-function statusBadge(status: FileStatus) {
-  if (status === 'Current') return 'bg-green-soft text-green'
-  if (status === 'Customer-specific') return 'bg-accent-soft text-accent'
-  return 'bg-canvas text-text-muted border border-border'
-}
+import { Folder } from 'lucide-react'
+import type { EvidenceFile } from '../api'
+import { formatDate, initials, verdictLabel, verdictStyle } from '../lib/format'
+import { Avatar, Badge, FileIcon } from './ui'
 
 interface Props {
-  files: DriveFile[]
-  selectedId: string | null
-  onSelect: (id: string) => void
+  files: EvidenceFile[]
+  selectedId: number | null
+  onSelect: (file: EvidenceFile) => void
+}
+
+function ownerName(file: EvidenceFile): string {
+  return file.owner?.name ?? file.owners[0]?.name ?? file.ownerEmail ?? '—'
 }
 
 export function DriveFileTable({ files, selectedId, onSelect }: Props) {
@@ -43,11 +21,7 @@ export function DriveFileTable({ files, selectedId, onSelect }: Props) {
           <h2 className="text-[14px] font-bold text-text">Relevant files</h2>
           <div className="mt-1 flex items-center gap-1.5 text-[12px] text-text-muted">
             <Folder size={12} />
-            <span>My Drive</span>
-            <span className="text-border-strong">/</span>
-            <span>Payroll</span>
-            <span className="text-border-strong">/</span>
-            <span className="font-medium text-text-secondary">Matched to case</span>
+            <span className="font-medium text-text-secondary">Evidence attached to this case</span>
           </div>
         </div>
         <span className="text-[12px] text-text-muted">{files.length} files</span>
@@ -61,7 +35,7 @@ export function DriveFileTable({ files, selectedId, onSelect }: Props) {
               <th className="px-3 py-2.5 font-semibold">Owner</th>
               <th className="px-3 py-2.5 font-semibold">Last modified</th>
               <th className="px-3 py-2.5 font-semibold">Location</th>
-              <th className="px-4 py-2.5 font-semibold">Status</th>
+              <th className="px-4 py-2.5 font-semibold">Trust</th>
             </tr>
           </thead>
           <tbody>
@@ -73,40 +47,36 @@ export function DriveFileTable({ files, selectedId, onSelect }: Props) {
                   tabIndex={0}
                   role="button"
                   aria-pressed={selected}
-                  onClick={() => onSelect(file.id)}
+                  onClick={() => onSelect(file)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
-                      onSelect(file.id)
+                      onSelect(file)
                     }
                   }}
                   className={[
-                    'cursor-pointer border-b border-border last:border-b-0 transition-colors',
+                    'cursor-pointer border-b border-border transition-colors last:border-b-0',
                     selected ? 'bg-accent-soft/50' : 'hover:bg-canvas',
                   ].join(' ')}
                 >
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2.5">
-                      <FileIcon type={file.type} />
+                      <FileIcon mimeType={file.mimeType} />
                       <span className="text-[13px] font-medium text-text">{file.name}</span>
                     </div>
                   </td>
                   <td className="px-3 py-2.5">
                     <div className="flex items-center gap-2">
-                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-border text-[10px] font-semibold text-text-secondary">
-                        {file.ownerInitials}
-                      </span>
-                      <span className="text-[12px] text-text-secondary">{file.owner}</span>
+                      <Avatar label={initials(ownerName(file))} />
+                      <span className="text-[12px] text-text-secondary">{ownerName(file)}</span>
                     </div>
                   </td>
-                  <td className="px-3 py-2.5 text-[12px] text-text-secondary">{file.modified}</td>
-                  <td className="px-3 py-2.5 text-[12px] text-text-muted">{file.location}</td>
+                  <td className="px-3 py-2.5 text-[12px] text-text-secondary">{formatDate(file.modifiedAt)}</td>
+                  <td className="px-3 py-2.5 text-[12px] text-text-muted">{file.path}</td>
                   <td className="px-4 py-2.5">
-                    <span
-                      className={`inline-flex rounded-[8px] px-2 py-0.5 text-[11px] font-semibold ${statusBadge(file.status)}`}
-                    >
-                      {file.status}
-                    </span>
+                    <Badge className={verdictStyle(file.trust.verdict)}>
+                      {file.trust.superseded ? 'Superseded' : verdictLabel(file.trust.verdict)}
+                    </Badge>
                   </td>
                 </tr>
               )

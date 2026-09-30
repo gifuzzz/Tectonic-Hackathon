@@ -8,6 +8,8 @@ from django.utils import timezone
 from knowledge.conflicts import detect_conflicts
 from knowledge.ingestion import DEMO_PREFIX, ingest_file, link_supersessions
 from knowledge.models import Case, CaseEvidence, Customer, DriveFile, Expert
+from storage import demo as storage_demo
+from storage.services import record_version
 
 DOC = "application/vnd.google-apps.document"
 SOFIE = ("Sofie Peeters", "sofie.peeters@sdworx.example")
@@ -166,17 +168,22 @@ class Command(BaseCommand):
 
         files = {}
         customer_list = list(Customer.objects.all())
+        folders = storage_demo.demo_folders([spec[2] for spec in FILES], DEMO_PREFIX)
         for key, name, path, (owner_name, owner_email), modified, content in FILES:
             f = DriveFile.objects.create(
                 drive_id=DEMO_PREFIX + key,
                 name=name,
                 mime_type=DOC,
                 path=path,
+                parent_ids=[folders[path].drive_id],
+                shared_drive_id=folders[path].shared_drive_id,
+                shared_drive_name=folders[path].shared_drive_name,
                 owners=[{"name": owner_name, "email": owner_email, "role": "owner"}],
                 drive_modified_at=_dt(modified),
                 content_text=content,
             )
             ingest_file(f, customer_list)
+            record_version(f)
             files[key] = f
         link_supersessions()
         conflicts = detect_conflicts()
@@ -197,7 +204,9 @@ class Command(BaseCommand):
             )
             for key in spec["evidence"]:
                 CaseEvidence.objects.create(case=case, file=files[key])
+        storage_demo.seed(files, folders)
 
         self.stdout.write(self.style.SUCCESS(
-            f"Loaded {len(FILES)} files, {len(EXPERTS)} experts, {len(CASES)} cases, {conflicts} unresolved conflict(s)."
+            f"Loaded {len(FILES)} files in {len(folders)} folders, {len(EXPERTS)} experts, {len(CASES)} cases, "
+            f"{conflicts} unresolved conflict(s), plus demo users, notes, versions and AI suggestions."
         ))

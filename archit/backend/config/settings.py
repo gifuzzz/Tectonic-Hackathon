@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 import dj_database_url
+from corsheaders.defaults import default_headers
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,6 +26,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "corsheaders",
     "knowledge",
+    "storage",
 ]
 
 MIDDLEWARE = [
@@ -69,6 +71,7 @@ USE_TZ = True
 STATIC_URL = "static/"
 
 CORS_ALLOW_ALL_ORIGINS = DEBUG
+CORS_ALLOW_HEADERS = (*default_headers, "x-user-email")
 CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173")
 
 # Google Drive
