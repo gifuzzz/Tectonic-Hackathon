@@ -1,19 +1,22 @@
 """List your Google Drive files in the terminal.
 
 Setup:
-  pip install google-api-python-client google-auth-oauthlib
+  uv sync
   Put an OAuth "Desktop app" client file next to this script as credentials.json
   (Google Cloud Console -> APIs & Services -> Credentials, with the Drive API enabled).
+  A "Web application" client will NOT work: Google rejects the localhost redirect.
 
 Usage:
-  python drive.py                 # 20 most recently modified files
-  python drive.py -n 50           # show 50 files
-  python drive.py -s report       # files whose name contains "report"
-  python drive.py -f              # folders only
-  python drive.py --logout        # forget the saved login
+  uv run archit/drive.py              # 20 most recently modified files
+  uv run archit/drive.py -n 50        # show 50 files
+  uv run archit/drive.py -s report    # files whose name contains "report"
+  uv run archit/drive.py -f           # folders only
+  uv run archit/drive.py --logout     # forget the saved login
 """
 import argparse
+import json
 import os
+import sys
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -35,6 +38,16 @@ def login():
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
     else:
+        if not os.path.exists(CREDS_FILE):
+            sys.exit(f"Missing {CREDS_FILE}. Download a Desktop app OAuth client from Google Cloud Console.")
+        with open(CREDS_FILE) as f:
+            if "installed" not in json.load(f):
+                sys.exit(
+                    f"{CREDS_FILE} is not a Desktop app client (Google will reject the login).\n"
+                    "Create one: Google Cloud Console -> APIs & Services -> Credentials ->\n"
+                    "Create credentials -> OAuth client ID -> Application type: Desktop app.\n"
+                    "Download the JSON and save it over credentials.json."
+                )
         flow = InstalledAppFlow.from_client_secrets_file(CREDS_FILE, SCOPES)
         creds = flow.run_local_server(port=0)
     with open(TOKEN_FILE, "w") as f:

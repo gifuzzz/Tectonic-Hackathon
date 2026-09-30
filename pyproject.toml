@@ -7,4 +7,8 @@ authors = [
     { name = "Archit Choudhary", email = "thearchitc@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "google-auth>=2.0.0",
+    "google-api-python-client>=2.200.0",
+    "google-auth-oauthlib>=1.5.0",
+]
