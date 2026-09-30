@@ -2,5 +2,11 @@ credentials.json
 token.json
 __pycache__/
 .venv/
+
+# local storage database
+shlok/data/
+*.db
+*.db-wal
+*.db-shm
 tectonic_hackathon.egg-info/
 uv.lock

@@ -72,7 +72,8 @@ class GoogleDrive:
         """Return up to `limit` files, most recently modified first.
 
         Each file is a dict with: id, name, mimeType, size (int bytes, or None for
-        Google Docs/folders), modifiedTime (ISO string) and webViewLink (URL).
+        Google Docs/folders), modifiedTime (ISO string), parents (list of parent
+        folder ids) and webViewLink (URL).
         """
         if self._service is None:
             self.authenticate()
@@ -91,7 +92,7 @@ class GoogleDrive:
                 orderBy="modifiedTime desc",
                 pageSize=min(limit - len(files), 1000),
                 pageToken=page_token,
-                fields="nextPageToken, files(id, name, mimeType, size, modifiedTime, webViewLink)",
+                fields="nextPageToken, files(id, name, mimeType, size, modifiedTime, parents, webViewLink)",
             ).execute()
             files += resp.get("files", [])
             page_token = resp.get("nextPageToken")
