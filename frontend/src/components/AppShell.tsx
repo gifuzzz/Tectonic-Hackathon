@@ -37,26 +37,33 @@ export function AppShell() {
 
         <nav className="flex flex-1 flex-col gap-0.5 p-2.5">
           {navItems.map(({ to, label, icon: Icon }) => {
-            const isActive = to === '/' ? casesActive : false
+            const isActive = to === '/' ? casesActive : location.pathname.startsWith(to)
             return (
               <NavLink
                 key={to}
                 to={to}
                 end={to === '/'}
                 className={[
-                  'flex items-center gap-2.5 rounded-[10px] px-3 py-2 text-[13px] font-medium transition-colors',
+                  'flex items-center justify-between rounded-[10px] px-3 py-2 text-[13px] font-medium transition-colors',
                   isActive
                     ? 'bg-accent-soft text-accent'
                     : 'text-text-secondary hover:bg-canvas hover:text-text',
                 ].join(' ')}
-                onClick={(e) => {
-                  if (to !== '/') {
-                    e.preventDefault()
-                  }
-                }}
               >
-                <Icon size={16} strokeWidth={2} />
-                {label}
+                <div className="flex items-center gap-2.5">
+                  <Icon size={16} strokeWidth={2} />
+                  <span>{label}</span>
+                </div>
+                {to === '/knowledge' && (
+                  <span className="rounded-full bg-accent px-1.5 py-0.2 text-[10px] font-bold text-white">
+                    3
+                  </span>
+                )}
+                {to === '/conflicts' && (
+                  <span className="rounded-full bg-amber px-1.5 py-0.2 text-[10px] font-bold text-white">
+                    1
+                  </span>
+                )}
               </NavLink>
             )
           })}

@@ -87,7 +87,6 @@ function emptyMeta(partial?: Partial<NodeMeta>): NodeMeta {
     notes: '',
     tags: [],
     category: null,
-    marks: {},
     updated_at: null,
     updated_by: null,
     ...partial,

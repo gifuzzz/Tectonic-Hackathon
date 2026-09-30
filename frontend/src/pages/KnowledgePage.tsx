@@ -1,42 +1,26 @@
-import { useMemo, useState } from 'react'
-import { Link, Navigate, useParams } from 'react-router-dom'
-import { ArrowLeft, CheckCircle2 } from 'lucide-react'
-import {
-  cases,
-  driveFiles,
-  trustSignals,
-} from '../data/mock'
+import { useState, useMemo } from 'react'
 import {
   buildKnowledgeGraph,
   aiSuggestions as initialAiSuggestions,
+  companyAssignments,
   type DriveNode,
   type HistoryEntry,
   type NoteItem,
   type Validity,
   type AiSuggestion,
 } from '../data/knowledge'
-import { DriveFileTable } from '../components/DriveFileTable'
+import { FileSystemVisualizer } from '../components/knowledge/FileSystemVisualizer'
 import { NodeDetailDrawer } from '../components/knowledge/NodeDetailDrawer'
-import { TrustPanel } from '../components/TrustPanel'
-import { ConflictPanel } from '../components/ConflictPanel'
-import { CompareEvidenceModal } from '../components/CompareEvidenceModal'
-import { ExpertCard } from '../components/ExpertCard'
 import { AiSuggestionsPanel } from '../components/knowledge/AiSuggestionsPanel'
+import { UserAssignmentBar } from '../components/knowledge/UserAssignmentBar'
 
-export function CaseWorkspacePage() {
-  const { caseId } = useParams()
-  const caseItem = cases.find((c) => c.id === caseId)
-
+export function KnowledgePage() {
   const initialGraph = useMemo(() => buildKnowledgeGraph(), [])
   const [nodes, setNodes] = useState<DriveNode[]>(initialGraph.nodes)
+  const [edges] = useState(initialGraph.edges)
+  const [rootIds] = useState(initialGraph.root_ids)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>('file-be-overtime-2026')
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [compareOpen, setCompareOpen] = useState(false)
-  const [expertHighlight, setExpertHighlight] = useState(false)
-  const [aiSuggestions, setAiSuggestions] = useState<AiSuggestion[]>(
-    initialAiSuggestions.filter((s) => s.id === 'ai-1'),
-  )
-
   const [historyMap, setHistoryMap] = useState<Record<string, HistoryEntry[]>>({
     'file-be-overtime-2026': [
       {
@@ -51,23 +35,31 @@ export function CaseWorkspacePage() {
     ],
   })
 
+  const [aiSuggestions, setAiSuggestions] = useState<AiSuggestion[]>(initialAiSuggestions)
+  const [currentUser, setCurrentUser] = useState('L. Martin')
+  const [filterByAssignment, setFilterByAssignment] = useState(false)
+  const [selectedCompany, setSelectedCompany] = useState('all')
+
   const selectedNode = useMemo(
     () => nodes.find((n) => n.id === selectedNodeId) ?? null,
     [nodes, selectedNodeId],
   )
 
-  if (!caseItem) {
-    return <Navigate to="/" replace />
-  }
+  const visibleNodes = useMemo(() => {
+    if (!filterByAssignment || currentUser === 'Admin') return nodes
+    const assigned = companyAssignments[currentUser] ?? []
+    if (assigned.length === 0) return nodes
 
-  const handleSelectFile = (id: string) => {
-    const mappedId = id.startsWith('file-') ? id : `file-${id}`
-    const found = nodes.find((n) => n.id === id || n.id === mappedId)
-    if (found) {
-      setSelectedNodeId(found.id)
-    } else {
-      setSelectedNodeId(id)
-    }
+    return nodes.filter((n) => {
+      if (n.type === 'folder') return true
+      const cList = (n.meta.marks.companies as string[] | undefined) ?? []
+      if (cList.length === 0) return true
+      return cList.some((c) => assigned.includes(c))
+    })
+  }, [nodes, filterByAssignment, currentUser])
+
+  const handleSelectNode = (nodeId: string) => {
+    setSelectedNodeId(nodeId)
     setDrawerOpen(true)
   }
 
@@ -80,9 +72,12 @@ export function CaseWorkspacePage() {
           ...n,
           meta: {
             ...n.meta,
-            marks: { ...n.meta.marks, validity },
+            marks: {
+              ...n.meta.marks,
+              validity,
+            },
             updated_at: new Date().toISOString(),
-            updated_by: 'L. Martin',
+            updated_by: currentUser,
           },
         }
 
@@ -93,7 +88,7 @@ export function CaseWorkspacePage() {
           old_value: oldVal ?? 'useful',
           new_value: validity,
           changed_at: new Date().toISOString(),
-          changed_by: 'L. Martin',
+          changed_by: currentUser,
         }
         setHistoryMap((hm) => ({
           ...hm,
@@ -113,9 +108,12 @@ export function CaseWorkspacePage() {
           ...n,
           meta: {
             ...n.meta,
-            marks: { ...n.meta.marks, notes_thread: notesThread },
+            marks: {
+              ...n.meta.marks,
+              notes_thread: notesThread,
+            },
             updated_at: new Date().toISOString(),
-            updated_by: 'L. Martin',
+            updated_by: currentUser,
           },
         }
 
@@ -126,7 +124,7 @@ export function CaseWorkspacePage() {
           old_value: `${(n.meta.marks.notes_thread as NoteItem[] | undefined)?.length ?? 0} notes`,
           new_value: `${notesThread.length} notes`,
           changed_at: new Date().toISOString(),
-          changed_by: 'L. Martin',
+          changed_by: currentUser,
         }
         setHistoryMap((hm) => ({
           ...hm,
@@ -144,10 +142,31 @@ export function CaseWorkspacePage() {
         if (n.id !== nodeId) return n
         if (n.meta.tags.includes(tag)) return n
         const nextTags = [...n.meta.tags, tag]
-        return {
+        const updatedNode: DriveNode = {
           ...n,
-          meta: { ...n.meta, tags: nextTags, updated_at: new Date().toISOString() },
+          meta: {
+            ...n.meta,
+            tags: nextTags,
+            updated_at: new Date().toISOString(),
+            updated_by: currentUser,
+          },
         }
+
+        const entry: HistoryEntry = {
+          id: Date.now(),
+          node_id: nodeId,
+          field: 'tags',
+          old_value: n.meta.tags,
+          new_value: nextTags,
+          changed_at: new Date().toISOString(),
+          changed_by: currentUser,
+        }
+        setHistoryMap((hm) => ({
+          ...hm,
+          [nodeId]: [entry, ...(hm[nodeId] ?? [])],
+        }))
+
+        return updatedNode
       }),
     )
   }
@@ -158,14 +177,35 @@ export function CaseWorkspacePage() {
         if (n.id !== nodeId) return n
         const currentCompanies = (n.meta.marks.companies as string[] | undefined) ?? []
         if (currentCompanies.includes(company)) return n
-        return {
+        const nextCompanies = [...currentCompanies, company]
+        const updatedNode: DriveNode = {
           ...n,
           meta: {
             ...n.meta,
-            marks: { ...n.meta.marks, companies: [...currentCompanies, company] },
+            marks: {
+              ...n.meta.marks,
+              companies: nextCompanies,
+            },
             updated_at: new Date().toISOString(),
+            updated_by: currentUser,
           },
         }
+
+        const entry: HistoryEntry = {
+          id: Date.now(),
+          node_id: nodeId,
+          field: 'companies',
+          old_value: currentCompanies,
+          new_value: nextCompanies,
+          changed_at: new Date().toISOString(),
+          changed_by: currentUser,
+        }
+        setHistoryMap((hm) => ({
+          ...hm,
+          [nodeId]: [entry, ...(hm[nodeId] ?? [])],
+        }))
+
+        return updatedNode
       }),
     )
   }
@@ -177,7 +217,7 @@ export function CaseWorkspacePage() {
     if (suggestion.proposedNote) {
       const target = nodes.find((n) => n.id === suggestion.targetNodeId)
       if (target) {
-        const existing = (target.meta.marks.notes_thread as NoteItem[] | undefined) ?? []
+        const existingNotes = (target.meta.marks.notes_thread as NoteItem[] | undefined) ?? []
         const newNote: NoteItem = {
           id: `n-${Date.now()}`,
           text: `[AI via ${suggestion.channel}] ${suggestion.proposedNote}`,
@@ -187,86 +227,56 @@ export function CaseWorkspacePage() {
           parent_id: null,
           refs: [],
         }
-        handleUpdateNotes(suggestion.targetNodeId, [...existing, newNote])
+        handleUpdateNotes(suggestion.targetNodeId, [...existingNotes, newNote])
       }
     }
     setAiSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id))
   }
 
-  const handleAskSophie = () => {
-    setExpertHighlight(true)
-    document.getElementById('expert-card')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-    window.setTimeout(() => setExpertHighlight(false), 1800)
+  const handleDismissAiSuggestion = (suggestionId: string) => {
+    setAiSuggestions((prev) => prev.filter((s) => s.id !== suggestionId))
   }
 
   return (
     <div className="mx-auto max-w-[1320px] px-6 py-5 space-y-3.5">
-      {/* Header */}
-      <div>
-        <Link
-          to="/"
-          className="mb-2 inline-flex items-center gap-1 text-[11px] font-medium text-text-muted hover:text-accent transition-colors"
-        >
-          <ArrowLeft size={12} />
-          Cases Overview
-        </Link>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-[19px] font-bold tracking-tight text-text">
-            {caseItem.topic} <span className="font-normal text-text-muted">—</span> {caseItem.customer}
-          </h1>
-
-          <div className="flex flex-wrap gap-1.5">
-            {caseItem.chips.map((chip) => (
-              <span
-                key={chip}
-                className="rounded-[6px] border border-border bg-surface px-2 py-0.5 text-[11px] font-medium text-text-secondary"
-              >
-                {chip}
-              </span>
-            ))}
-          </div>
+      {/* Header and User Role Switcher */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-[19px] font-bold tracking-tight text-text">Knowledge Workspace</h1>
+          <p className="text-[12px] text-text-secondary">
+            Inspect organizational Drive documents, verify policy validity, and resolve uncertainties.
+          </p>
         </div>
-      </div>
 
-      {/* Clear Executive Answer Card */}
-      <div className="rounded-[10px] border border-accent/25 bg-surface p-4 shadow-xs">
-        <div className="mb-1.5 flex items-center gap-1.5">
-          <CheckCircle2 size={13} className="text-accent" />
-          <span className="text-[10px] font-bold tracking-wider text-accent uppercase">
-            Clear Workflow Answer
-          </span>
-        </div>
-        <p className="text-[14px] leading-relaxed font-semibold text-text">{caseItem.answer}</p>
-      </div>
-
-      {/* AI Copilot Suggestion Bar */}
-      {aiSuggestions.length > 0 && (
-        <AiSuggestionsPanel
-          suggestions={aiSuggestions}
-          onApply={handleApplyAiSuggestion}
-          onDismiss={(id) => setAiSuggestions((prev) => prev.filter((s) => s.id !== id))}
-          onSelectNode={handleSelectFile}
+        <UserAssignmentBar
+          currentUser={currentUser}
+          onUserChange={setCurrentUser}
+          filterByAssignment={filterByAssignment}
+          onToggleFilter={setFilterByAssignment}
         />
-      )}
-
-      {/* Main 2-Column Case Layout */}
-      <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[minmax(0,1fr)_310px]">
-        <div className="min-w-0 space-y-3.5">
-          <DriveFileTable
-            files={driveFiles}
-            selectedId={selectedNodeId}
-            onSelect={handleSelectFile}
-          />
-          <ConflictPanel onCompare={() => setCompareOpen(true)} onAskSophie={handleAskSophie} />
-        </div>
-
-        <div className="space-y-3.5">
-          <TrustPanel signals={trustSignals} />
-          <ExpertCard highlight={expertHighlight} />
-        </div>
       </div>
 
-      {/* Detailed Drive Node Drawer */}
+      {/* AI Suggestion Bar */}
+      <AiSuggestionsPanel
+        suggestions={aiSuggestions}
+        onApply={handleApplyAiSuggestion}
+        onDismiss={handleDismissAiSuggestion}
+        onSelectNode={handleSelectNode}
+      />
+
+      {/* Visualizer */}
+      <FileSystemVisualizer
+        nodes={visibleNodes}
+        edges={edges}
+        rootIds={rootIds}
+        selectedNodeId={selectedNodeId}
+        onSelectNode={handleSelectNode}
+        onUpdateValidity={handleUpdateValidity}
+        selectedCompany={selectedCompany}
+        onCompanyChange={setSelectedCompany}
+      />
+
+      {/* Detail Drawer */}
       <NodeDetailDrawer
         node={selectedNode}
         nodes={nodes}
@@ -277,10 +287,8 @@ export function CaseWorkspacePage() {
         onUpdateNotes={handleUpdateNotes}
         onAddTag={handleAddTag}
         onAddCompany={handleAddCompany}
-        onSelectNode={handleSelectFile}
+        onSelectNode={handleSelectNode}
       />
-
-      <CompareEvidenceModal open={compareOpen} onClose={() => setCompareOpen(false)} />
     </div>
   )
 }
